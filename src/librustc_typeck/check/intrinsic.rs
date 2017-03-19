@@ -141,6 +141,9 @@ pub fn check_intrinsic_type<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
 
             "type_name" => (1, Vec::new(), tcx.mk_static_str()),
             "type_id" => (1, Vec::new(), tcx.types.u64),
+            "type_const_key" => (2, Vec::new(), tcx.types.usize),
+            "type_const_count" => (1, Vec::new(), tcx.types.usize),
+            "type_const_get" => (1, vec![tcx.types.usize], param(0)),
             "offset" | "arith_offset" => {
               (1,
                vec![

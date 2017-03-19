@@ -373,3 +373,33 @@ impl TypeId {
         }
     }
 }
+
+/// Type constant.
+#[cfg(not(stage0))]
+#[lang = "type_const"]
+#[unstable(feature = "type_const", reason = "new feature", issue = "0")]
+pub trait TypeConst<T: ?Sized + 'static>: Sized {
+    /// The data associated with `T`.
+    const DATA: Self;
+}
+
+/// Get type key.
+#[cfg(not(stage0))]
+#[unstable(feature = "type_const", reason = "new feature", issue = "0")]
+pub fn get_type_key<D: TypeConst<T>, T: ?Sized + 'static>() -> usize {
+    unsafe { intrinsics::type_const_key::<D, T>() }
+}
+
+/// Get the `DATA` field in the impl for the type that matches the given
+/// `TypeKey`.  If no such impl is found, returns `None`.
+#[cfg(not(stage0))]
+#[unstable(feature = "type_const", reason = "new feature", issue = "0")]
+pub fn get_type_const<D>(key: usize) -> Option<D> {
+    unsafe {
+        if key < intrinsics::type_const_count::<D>() {
+            Some(intrinsics::type_const_get::<D>(key))
+        } else {
+            None
+        }
+    }
+}

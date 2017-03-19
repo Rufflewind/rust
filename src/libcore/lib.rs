@@ -69,6 +69,7 @@
 
 #![feature(allow_internal_unstable)]
 #![feature(asm)]
+#![feature(associated_consts)]
 #![feature(associated_type_defaults)]
 #![feature(cfg_target_feature)]
 #![feature(concat_idents)]

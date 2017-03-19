@@ -1267,4 +1267,13 @@ extern "rust-intrinsic" {
     /// on MSVC it's `*mut [usize; 2]`. For more information see the compiler's
     /// source as well as std's catch implementation.
     pub fn try(f: fn(*mut u8), data: *mut u8, local_ptr: *mut u8) -> i32;
+
+    #[cfg(not(stage0))]
+    pub fn type_const_key<D, T: ?Sized + 'static>() -> usize;
+
+    #[cfg(not(stage0))]
+    pub fn type_const_count<D>() -> usize;
+
+    #[cfg(not(stage0))]
+    pub fn type_const_get<D>(index: usize) -> D;
 }
