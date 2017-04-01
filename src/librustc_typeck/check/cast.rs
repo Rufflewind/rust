@@ -213,13 +213,28 @@ impl<'a, 'gcx, 'tcx> CastCheck<'tcx> {
                                        self.expr_ty);
             }
             CastError::NonScalar => {
-                fcx.type_error_message(self.span,
-                                       |actual| {
-                                           format!("non-scalar cast: `{}` as `{}`",
-                                                   actual,
-                                                   fcx.ty_to_string(self.cast_ty))
-                                       },
-                                       self.expr_ty);
+                let ambiguous = match (&self.expr_ty.sty, &self.cast_ty.sty) {
+                    (&ty::TypeVariants::TyInfer(_), _) => true,
+                    (_, &ty::TypeVariants::TyInfer(_)) => true,
+                    _ => false,
+                };
+                if ambiguous {
+                    fcx.type_error_message(self.span,
+                                           |actual| {
+                                               format!("ambiguous cast: `{}` as `{}`",
+                                                       actual,
+                                                       fcx.ty_to_string(self.cast_ty))
+                                           },
+                                           self.expr_ty);
+                } else {
+                    fcx.type_error_message(self.span,
+                                           |actual| {
+                                               format!("non-scalar cast: `{}` as `{}`",
+                                                       actual,
+                                                       fcx.ty_to_string(self.cast_ty))
+                                           },
+                                           self.expr_ty);
+                }
             }
             CastError::IllegalCast => {
                 fcx.type_error_message(self.span,

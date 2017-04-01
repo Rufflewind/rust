@@ -165,18 +165,51 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
                                                .. }) => {
                 let tcx = self.tcx;
 
-                let mut err = self.type_error_struct(span,
-                                                     |actual| {
-                    format!("no {} named `{}` found for type `{}` in the current scope",
-                            if mode == Mode::MethodCall {
-                                "method"
-                            } else {
-                                "associated item"
-                            },
-                            item_name,
-                            actual)
-                },
-                                                     rcvr_ty);
+                let is_number_var = match &rcvr_ty.sty {
+                    &ty::TyInfer(ty::InferTy::IntVar(_)) => Some("i64"),
+                    &ty::TyInfer(ty::InferTy::FloatVar(_)) => Some("f64"),
+                    _ => None,
+                };
+
+                let mut err = if let Some(number) = is_number_var {
+                    let mut err = self.type_error_struct(
+                        span,
+                        |actual| {
+                            format!("no {} named `{}` found for ambiguous type `{}` in the current scope",
+                                    if mode == Mode::MethodCall {
+                                        "method"
+                                    } else {
+                                        "associated item"
+                                    },
+                                    item_name,
+                                    actual)
+                        },
+                        rcvr_ty);
+                    err.help(&format!("if you meant to {} `{}` of a concrete type such as `{}`, consider adding some type annotations to clarify which `{}` you want",
+                                      if mode == Mode::MethodCall {
+                                          "call"
+                                      } else {
+                                          "use"
+                                      },
+                                      item_name,
+                                      number,
+                                      rcvr_ty));
+                    err
+                } else {
+                    self.type_error_struct(
+                        span,
+                        |actual| {
+                            format!("no {} named `{}` found for type `{}` in the current scope",
+                                    if mode == Mode::MethodCall {
+                                        "method"
+                                    } else {
+                                        "associated item"
+                                    },
+                                    item_name,
+                                    actual)
+                        },
+                        rcvr_ty)
+                };
 
                 // If the method name is the name of a field with a function or closure type,
                 // give a helping note that it has to be called as (x.f)(...).
