@@ -533,8 +533,7 @@ fn robin_hood<'a, K: 'a, V: 'a>(bucket: FullBucketMut<'a, K, V>,
 }
 
 impl<K, V, S> HashMap<K, V, S>
-    where K: Eq + Hash,
-          S: BuildHasher
+    where S: BuildHasher
 {
     fn make_hash<X: ?Sized>(&self, x: &X) -> SafeHash
         where X: Hash
@@ -585,7 +584,7 @@ impl<K, V, S> HashMap<K, V, S>
     }
 }
 
-impl<K: Hash + Eq, V> HashMap<K, V, RandomState> {
+impl<K, V> HashMap<K, V, RandomState> {
     /// Creates an empty `HashMap`.
     ///
     /// The hash map is initially created with a capacity of 0, so it will not allocate until it
@@ -621,10 +620,7 @@ impl<K: Hash + Eq, V> HashMap<K, V, RandomState> {
     }
 }
 
-impl<K, V, S> HashMap<K, V, S>
-    where K: Eq + Hash,
-          S: BuildHasher
-{
+impl<K, V, S> HashMap<K, V, S> {
     /// Creates an empty `HashMap` which will use the given hash builder to hash
     /// keys.
     ///
@@ -718,140 +714,6 @@ impl<K, V, S> HashMap<K, V, S>
     #[inline]
     fn raw_capacity(&self) -> usize {
         self.table.capacity()
-    }
-
-    /// Reserves capacity for at least `additional` more elements to be inserted
-    /// in the `HashMap`. The collection may reserve more space to avoid
-    /// frequent reallocations.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the new allocation size overflows [`usize`].
-    ///
-    /// [`usize`]: ../../std/primitive.usize.html
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::HashMap;
-    /// let mut map: HashMap<&str, isize> = HashMap::new();
-    /// map.reserve(10);
-    /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn reserve(&mut self, additional: usize) {
-        let remaining = self.capacity() - self.len(); // this can't overflow
-        if remaining < additional {
-            let min_cap = self.len().checked_add(additional).expect("reserve overflow");
-            let raw_cap = self.resize_policy.raw_capacity(min_cap);
-            self.resize(raw_cap);
-        } else if self.table.tag() && remaining <= self.len() {
-            // Probe sequence is too long and table is half full,
-            // resize early to reduce probing length.
-            let new_capacity = self.table.capacity() * 2;
-            self.resize(new_capacity);
-        }
-    }
-
-    /// Resizes the internal vectors to a new capacity. It's your
-    /// responsibility to:
-    ///   1) Ensure `new_raw_cap` is enough for all the elements, accounting
-    ///      for the load factor.
-    ///   2) Ensure `new_raw_cap` is a power of two or zero.
-    #[inline(never)]
-    #[cold]
-    fn resize(&mut self, new_raw_cap: usize) {
-        assert!(self.table.size() <= new_raw_cap);
-        assert!(new_raw_cap.is_power_of_two() || new_raw_cap == 0);
-
-        let mut old_table = replace(&mut self.table, RawTable::new(new_raw_cap));
-        let old_size = old_table.size();
-
-        if old_table.size() == 0 {
-            return;
-        }
-
-        let mut bucket = Bucket::head_bucket(&mut old_table);
-
-        // This is how the buckets might be laid out in memory:
-        // ($ marks an initialized bucket)
-        //  ________________
-        // |$$$_$$$$$$_$$$$$|
-        //
-        // But we've skipped the entire initial cluster of buckets
-        // and will continue iteration in this order:
-        //  ________________
-        //     |$$$$$$_$$$$$
-        //                  ^ wrap around once end is reached
-        //  ________________
-        //  $$$_____________|
-        //    ^ exit once table.size == 0
-        loop {
-            bucket = match bucket.peek() {
-                Full(bucket) => {
-                    let h = bucket.hash();
-                    let (b, k, v) = bucket.take();
-                    self.insert_hashed_ordered(h, k, v);
-                    if b.table().size() == 0 {
-                        break;
-                    }
-                    b.into_bucket()
-                }
-                Empty(b) => b.into_bucket(),
-            };
-            bucket.next();
-        }
-
-        assert_eq!(self.table.size(), old_size);
-    }
-
-    /// Shrinks the capacity of the map as much as possible. It will drop
-    /// down as much as possible while maintaining the internal rules
-    /// and possibly leaving some space in accordance with the resize policy.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::HashMap;
-    ///
-    /// let mut map: HashMap<isize, isize> = HashMap::with_capacity(100);
-    /// map.insert(1, 2);
-    /// map.insert(3, 4);
-    /// assert!(map.capacity() >= 100);
-    /// map.shrink_to_fit();
-    /// assert!(map.capacity() >= 2);
-    /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn shrink_to_fit(&mut self) {
-        let new_raw_cap = self.resize_policy.raw_capacity(self.len());
-        if self.raw_capacity() != new_raw_cap {
-            let old_table = replace(&mut self.table, RawTable::new(new_raw_cap));
-            let old_size = old_table.size();
-
-            // Shrink the table. Naive algorithm for resizing:
-            for (h, k, v) in old_table.into_iter() {
-                self.insert_hashed_nocheck(h, k, v);
-            }
-
-            debug_assert_eq!(self.table.size(), old_size);
-        }
-    }
-
-    /// Insert a pre-hashed key-value pair, without first checking
-    /// that there's enough room in the buckets. Returns a reference to the
-    /// newly insert value.
-    ///
-    /// If the key already exists, the hashtable will be returned untouched
-    /// and a reference to the existing element will be returned.
-    fn insert_hashed_nocheck(&mut self, hash: SafeHash, k: K, v: V) -> Option<V> {
-        let entry = search_hashed(&mut self.table, hash, |key| *key == k).into_entry(k);
-        match entry {
-            Some(Occupied(mut elem)) => Some(elem.insert(v)),
-            Some(Vacant(elem)) => {
-                elem.insert(v);
-                None
-            }
-            None => unreachable!(),
-        }
     }
 
     /// An iterator visiting all keys in arbitrary order.
@@ -975,34 +837,6 @@ impl<K, V, S> HashMap<K, V, S>
         IterMut { inner: self.table.iter_mut() }
     }
 
-    /// Gets the given key's corresponding entry in the map for in-place manipulation.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::HashMap;
-    ///
-    /// let mut letters = HashMap::new();
-    ///
-    /// for ch in "a short treatise on fungi".chars() {
-    ///     let counter = letters.entry(ch).or_insert(0);
-    ///     *counter += 1;
-    /// }
-    ///
-    /// assert_eq!(letters[&'s'], 2);
-    /// assert_eq!(letters[&'t'], 3);
-    /// assert_eq!(letters[&'u'], 1);
-    /// assert_eq!(letters.get(&'y'), None);
-    /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn entry(&mut self, key: K) -> Entry<K, V> {
-        // Gotta resize now.
-        self.reserve(1);
-        let hash = self.make_hash(&key);
-        search_hashed(&mut self.table, hash, |q| q.eq(&key))
-            .into_entry(key).expect("unreachable")
-    }
-
     /// Returns the number of elements in the map.
     ///
     /// # Examples
@@ -1080,6 +914,96 @@ impl<K, V, S> HashMap<K, V, S>
     #[inline]
     pub fn clear(&mut self) {
         self.drain();
+    }
+}
+
+impl<K, V, S> HashMap<K, V, S>
+    where K: Eq
+{
+    /// Shrinks the capacity of the map as much as possible. It will drop
+    /// down as much as possible while maintaining the internal rules
+    /// and possibly leaving some space in accordance with the resize policy.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map: HashMap<isize, isize> = HashMap::with_capacity(100);
+    /// map.insert(1, 2);
+    /// map.insert(3, 4);
+    /// assert!(map.capacity() >= 100);
+    /// map.shrink_to_fit();
+    /// assert!(map.capacity() >= 2);
+    /// ```
+    #[stable(feature = "rust1", since = "1.0.0")]
+    pub fn shrink_to_fit(&mut self) {
+        let new_raw_cap = self.resize_policy.raw_capacity(self.len());
+        if self.raw_capacity() != new_raw_cap {
+            let old_table = replace(&mut self.table, RawTable::new(new_raw_cap));
+            let old_size = old_table.size();
+
+            // Shrink the table. Naive algorithm for resizing:
+            for (h, k, v) in old_table.into_iter() {
+                self.insert_hashed_nocheck(h, k, v);
+            }
+
+            debug_assert_eq!(self.table.size(), old_size);
+        }
+    }
+
+    /// Insert a pre-hashed key-value pair, without first checking
+    /// that there's enough room in the buckets. Returns a reference to the
+    /// newly insert value.
+    ///
+    /// If the key already exists, the hashtable will be returned untouched
+    /// and a reference to the existing element will be returned.
+    fn insert_hashed_nocheck(&mut self, hash: SafeHash, k: K, v: V) -> Option<V> {
+        let entry = search_hashed(&mut self.table, hash, |key| *key == k).into_entry(k);
+        match entry {
+            Some(Occupied(mut elem)) => Some(elem.insert(v)),
+            Some(Vacant(elem)) => {
+                elem.insert(v);
+                None
+            }
+            None => unreachable!(),
+        }
+    }
+}
+
+impl<K, V, S> HashMap<K, V, S>
+    where S: BuildHasher
+{
+    /// Reserves capacity for at least `additional` more elements to be inserted
+    /// in the `HashMap`. The collection may reserve more space to avoid
+    /// frequent reallocations.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new allocation size overflows [`usize`].
+    ///
+    /// [`usize`]: ../../std/primitive.usize.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// let mut map: HashMap<&str, isize> = HashMap::new();
+    /// map.reserve(10);
+    /// ```
+    #[stable(feature = "rust1", since = "1.0.0")]
+    pub fn reserve(&mut self, additional: usize) {
+        let remaining = self.capacity() - self.len(); // this can't overflow
+        if remaining < additional {
+            let min_cap = self.len().checked_add(additional).expect("reserve overflow");
+            let raw_cap = self.resize_policy.raw_capacity(min_cap);
+            self.resize(raw_cap);
+        } else if self.table.tag() && remaining <= self.len() {
+            // Probe sequence is too long and table is half full,
+            // resize early to reduce probing length.
+            let new_capacity = self.table.capacity() * 2;
+            self.resize(new_capacity);
+        }
     }
 
     /// Returns a reference to the value corresponding to the key.
@@ -1165,38 +1089,6 @@ impl<K, V, S> HashMap<K, V, S>
         self.search_mut(k).into_occupied_bucket().map(|bucket| bucket.into_mut_refs().1)
     }
 
-    /// Inserts a key-value pair into the map.
-    ///
-    /// If the map did not have this key present, [`None`] is returned.
-    ///
-    /// If the map did have this key present, the value is updated, and the old
-    /// value is returned. The key is not updated, though; this matters for
-    /// types that can be `==` without being identical. See the [module-level
-    /// documentation] for more.
-    ///
-    /// [`None`]: ../../std/option/enum.Option.html#variant.None
-    /// [module-level documentation]: index.html#insert-and-complex-keys
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::HashMap;
-    ///
-    /// let mut map = HashMap::new();
-    /// assert_eq!(map.insert(37, "a"), None);
-    /// assert_eq!(map.is_empty(), false);
-    ///
-    /// map.insert(37, "b");
-    /// assert_eq!(map.insert(37, "c"), Some("b"));
-    /// assert_eq!(map[&37], "c");
-    /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn insert(&mut self, k: K, v: V) -> Option<V> {
-        let hash = self.make_hash(&k);
-        self.reserve(1);
-        self.insert_hashed_nocheck(hash, k, v)
-    }
-
     /// Removes a key from the map, returning the value at the key if the key
     /// was previously in the map.
     ///
@@ -1277,6 +1169,123 @@ impl<K, V, S> HashMap<K, V, S>
             debug_assert!(elems_left == 0 || bucket.index() != start_index);
         }
     }
+
+    /// Resizes the internal vectors to a new capacity. It's your
+    /// responsibility to:
+    ///   1) Ensure `new_raw_cap` is enough for all the elements, accounting
+    ///      for the load factor.
+    ///   2) Ensure `new_raw_cap` is a power of two or zero.
+    #[inline(never)]
+    #[cold]
+    fn resize(&mut self, new_raw_cap: usize) {
+        assert!(self.table.size() <= new_raw_cap);
+        assert!(new_raw_cap.is_power_of_two() || new_raw_cap == 0);
+
+        let mut old_table = replace(&mut self.table, RawTable::new(new_raw_cap));
+        let old_size = old_table.size();
+
+        if old_table.size() == 0 {
+            return;
+        }
+
+        let mut bucket = Bucket::head_bucket(&mut old_table);
+
+        // This is how the buckets might be laid out in memory:
+        // ($ marks an initialized bucket)
+        //  ________________
+        // |$$$_$$$$$$_$$$$$|
+        //
+        // But we've skipped the entire initial cluster of buckets
+        // and will continue iteration in this order:
+        //  ________________
+        //     |$$$$$$_$$$$$
+        //                  ^ wrap around once end is reached
+        //  ________________
+        //  $$$_____________|
+        //    ^ exit once table.size == 0
+        loop {
+            bucket = match bucket.peek() {
+                Full(bucket) => {
+                    let h = bucket.hash();
+                    let (b, k, v) = bucket.take();
+                    self.insert_hashed_ordered(h, k, v);
+                    if b.table().size() == 0 {
+                        break;
+                    }
+                    b.into_bucket()
+                }
+                Empty(b) => b.into_bucket(),
+            };
+            bucket.next();
+        }
+
+        assert_eq!(self.table.size(), old_size);
+    }
+}
+
+impl<K, V, S> HashMap<K, V, S>
+    where K: Eq + Hash,
+          S: BuildHasher
+{
+    /// Gets the given key's corresponding entry in the map for in-place manipulation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut letters = HashMap::new();
+    ///
+    /// for ch in "a short treatise on fungi".chars() {
+    ///     let counter = letters.entry(ch).or_insert(0);
+    ///     *counter += 1;
+    /// }
+    ///
+    /// assert_eq!(letters[&'s'], 2);
+    /// assert_eq!(letters[&'t'], 3);
+    /// assert_eq!(letters[&'u'], 1);
+    /// assert_eq!(letters.get(&'y'), None);
+    /// ```
+    #[stable(feature = "rust1", since = "1.0.0")]
+    pub fn entry(&mut self, key: K) -> Entry<K, V> {
+        // Gotta resize now.
+        self.reserve(1);
+        let hash = self.make_hash(&key);
+        search_hashed(&mut self.table, hash, |q| q.eq(&key))
+            .into_entry(key).expect("unreachable")
+    }
+
+    /// Inserts a key-value pair into the map.
+    ///
+    /// If the map did not have this key present, [`None`] is returned.
+    ///
+    /// If the map did have this key present, the value is updated, and the old
+    /// value is returned. The key is not updated, though; this matters for
+    /// types that can be `==` without being identical. See the [module-level
+    /// documentation] for more.
+    ///
+    /// [`None`]: ../../std/option/enum.Option.html#variant.None
+    /// [module-level documentation]: index.html#insert-and-complex-keys
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// assert_eq!(map.insert(37, "a"), None);
+    /// assert_eq!(map.is_empty(), false);
+    ///
+    /// map.insert(37, "b");
+    /// assert_eq!(map.insert(37, "c"), Some("b"));
+    /// assert_eq!(map[&37], "c");
+    /// ```
+    #[stable(feature = "rust1", since = "1.0.0")]
+    pub fn insert(&mut self, k: K, v: V) -> Option<V> {
+        let hash = self.make_hash(&k);
+        self.reserve(1);
+        self.insert_hashed_nocheck(hash, k, v)
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1303,21 +1312,14 @@ impl<K, V, S> Eq for HashMap<K, V, S>
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<K, V, S> Debug for HashMap<K, V, S>
-    where K: Eq + Hash + Debug,
-          V: Debug,
-          S: BuildHasher
-{
+impl<K: Debug, V: Debug, S> Debug for HashMap<K, V, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_map().entries(self.iter()).finish()
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<K, V, S> Default for HashMap<K, V, S>
-    where K: Eq + Hash,
-          S: BuildHasher + Default
-{
+impl<K, V, S: Default> Default for HashMap<K, V, S> {
     /// Creates an empty `HashMap<K, V, S>`, with the `Default` value for the hasher.
     fn default() -> HashMap<K, V, S> {
         HashMap::with_hasher(Default::default())
@@ -1326,7 +1328,7 @@ impl<K, V, S> Default for HashMap<K, V, S>
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, K, Q: ?Sized, V, S> Index<&'a Q> for HashMap<K, V, S>
-    where K: Eq + Hash + Borrow<Q>,
+    where K: Borrow<Q>,
           Q: Eq + Hash,
           S: BuildHasher
 {
